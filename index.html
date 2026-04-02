@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PIXELDROP // SECURE P2P TRANSFER</title>
+  <meta name="description" content="Encrypted peer-to-peer file transfer using WebRTC and AES-256-GCM" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- QR Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- QR Scanning -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+
+  <!-- ─── SCANLINE OVERLAY ─────────────────────────────────────────── -->
+  <div id="scanlines" aria-hidden="true"></div>
+
+  <!-- ─── FIREBASE CONFIG OVERLAY ──────────────────────────────────── -->
+  <div id="setup-overlay" class="hidden">
+    <div class="setup-box pixel-panel">
+      <div class="setup-header">
+        <span class="icon-warn">⚠</span>
+        FIREBASE CONFIG REQUIRED
+      </div>
+      <p class="setup-desc">
+        Open <code>js/config.js</code> and fill in your Firebase project details to enable signaling.
+      </p>
+      <div class="setup-steps">
+        <div class="step">1. Go to <strong>console.firebase.google.com</strong></div>
+        <div class="step">2. Create a project → Add Web App</div>
+        <div class="step">3. Enable <strong>Realtime Database</strong></div>
+        <div class="step">4. Copy config into <code>js/config.js</code></div>
+        <div class="step">5. Set DB Rules (see README.md)</div>
+      </div>
+      <a href="https://console.firebase.google.com" target="_blank" class="btn btn-primary">
+        OPEN FIREBASE CONSOLE
+      </a>
+    </div>
+  </div>
+
+  <!-- ─── MAIN APP ──────────────────────────────────────────────────── -->
+  <div id="app">
+
+    <!-- HEADER -->
+    <header id="app-header">
+      <div class="header-logo">
+        <span class="logo-px">PX</span><span class="logo-drop">DROP</span>
+      </div>
+      <div class="header-tagline">AES-256-GCM · WEBRTC · P2P</div>
+      <button id="btn-back" class="btn btn-ghost btn-sm hidden" title="Back to Home">
+        ◀ BACK
+      </button>
+    </header>
+
+    <!-- ─── SCREEN: HOME ──────────────────────────────────────────── -->
+    <section id="screen-home" class="screen active">
+      <div class="home-hero">
+        <div class="hero-title">SECURE FILE<br/>TRANSFER</div>
+        <div class="hero-sub">
+          DIRECT · ENCRYPTED · ZERO SERVER STORAGE
+        </div>
+        <div class="hero-badges">
+          <span class="badge">256-BIT AES</span>
+          <span class="badge">PEER TO PEER</span>
+          <span class="badge">NO CLOUD</span>
+        </div>
+      </div>
+      <div class="home-actions">
+        <button id="btn-send-mode" class="btn btn-primary btn-xl">
+          <span class="btn-icon">▲</span>
+          SEND FILE
+          <span class="btn-sub">CREATE SECURE ROOM</span>
+        </button>
+        <button id="btn-receive-mode" class="btn btn-secondary btn-xl">
+          <span class="btn-icon">▼</span>
+          RECEIVE FILE
+          <span class="btn-sub">ENTER / SCAN CODE</span>
+        </button>
+      </div>
+      <div class="home-encryption-note">
+        Files encrypted on your device before transfer.<br/>
+        Keys never leave your browser.
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: SENDER — FILE SELECT ─────────────────────────── -->
+    <section id="screen-sender-select" class="screen">
+      <div class="screen-title">SELECT FILE</div>
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Drop file here or click to browse">
+        <div class="drop-icon">📁</div>
+        <div class="drop-text">DROP FILE HERE</div>
+        <div class="drop-sub">OR CLICK TO BROWSE</div>
+        <div class="drop-any">ANY FILE TYPE · ANY SIZE</div>
+      </div>
+      <input type="file" id="file-input" class="hidden" aria-hidden="true" />
+      <div id="selected-file-info" class="file-info-row hidden">
+        <div class="file-info-icon">📦</div>
+        <div class="file-info-details">
+          <div id="selected-file-name" class="file-name"></div>
+          <div id="selected-file-size" class="file-size"></div>
+        </div>
+        <button id="btn-create-room" class="btn btn-primary">
+          CREATE ROOM ▶
+        </button>
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: SENDER — ROOM / WAITING ──────────────────────── -->
+    <section id="screen-sender-room" class="screen">
+      <div class="screen-title">ROOM CODE</div>
+      <div class="room-display-wrap">
+        <div class="room-label">SHARE THIS CODE WITH RECEIVER</div>
+        <div id="room-code-display" class="room-code-display"></div>
+        <button id="btn-copy-code" class="btn btn-ghost btn-sm">⎘ COPY CODE</button>
+      </div>
+      <div class="qr-section">
+        <div class="qr-label">OR SCAN QR CODE</div>
+        <div class="qr-frame">
+          <div id="qr-code-canvas"></div>
+        </div>
+        <div id="qr-url-display" class="qr-url"></div>
+      </div>
+      <div class="waiting-status">
+        <div id="waiting-indicator" class="status-row">
+          <span class="pulse-dot"></span>
+          <span>WAITING FOR RECEIVER<span class="blink-cursor"></span></span>
+        </div>
+        <div id="connected-indicator" class="status-row status-connected hidden">
+          <span class="conn-dot">●</span>
+          <span>RECEIVER CONNECTED — STARTING TRANSFER</span>
+        </div>
+      </div>
+      <div class="security-note">
+        <span class="lock-icon">🔒</span>
+        END-TO-END ENCRYPTED WITH AES-256-GCM
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: SENDER — TRANSFER ────────────────────────────── -->
+    <section id="screen-sender-transfer" class="screen">
+      <div class="screen-title">TRANSMITTING</div>
+      <div class="transfer-file-info">
+        <span class="transfer-file-icon">📤</span>
+        <div>
+          <div id="transfer-file-name-s" class="transfer-name"></div>
+          <div id="transfer-file-size-s" class="transfer-size"></div>
+        </div>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-track">
+          <div id="progress-fill-s" class="progress-fill"></div>
+        </div>
+        <div class="progress-stats">
+          <span id="progress-pct-s" class="progress-pct">0%</span>
+          <span id="progress-chunks-s" class="progress-chunks">0 / 0 CHUNKS</span>
+          <span id="progress-speed-s" class="progress-speed">-- KB/S</span>
+        </div>
+      </div>
+      <div class="encrypt-label">
+        <span>🔐</span> ENCRYPTING + SENDING CHUNKS
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: SENDER — DONE ─────────────────────────────────── -->
+    <section id="screen-sender-done" class="screen">
+      <div class="done-graphic">
+        <div class="done-icon">✓</div>
+        <div class="done-title">TRANSFER COMPLETE</div>
+      </div>
+      <div class="done-stats-grid">
+        <div class="done-stat">
+          <div id="done-filename-s" class="done-stat-value"></div>
+          <div class="done-stat-label">FILE</div>
+        </div>
+        <div class="done-stat">
+          <div id="done-size-s" class="done-stat-value"></div>
+          <div class="done-stat-label">SIZE</div>
+        </div>
+        <div class="done-stat">
+          <div id="done-time-s" class="done-stat-value"></div>
+          <div class="done-stat-label">TIME</div>
+        </div>
+        <div class="done-stat">
+          <div id="done-speed-s" class="done-stat-value"></div>
+          <div class="done-stat-label">AVG SPEED</div>
+        </div>
+      </div>
+      <button id="btn-send-again" class="btn btn-primary">SEND ANOTHER FILE</button>
+    </section>
+
+    <!-- ─── SCREEN: RECEIVER — CONNECT ───────────────────────────── -->
+    <section id="screen-receiver-connect" class="screen">
+      <div class="screen-title">CONNECT</div>
+
+      <!-- Method: URL auto-detect -->
+      <div id="method-url" class="connect-method hidden">
+        <div class="method-header">
+          <span class="method-badge method-badge-auto">AUTO</span>
+          ROOM CODE DETECTED FROM URL
+        </div>
+        <div id="auto-room-code" class="auto-code-display"></div>
+        <button id="btn-auto-connect" class="btn btn-primary">
+          CONNECT NOW ▶
+        </button>
+      </div>
+
+      <!-- Divider -->
+      <div id="connect-divider" class="method-divider hidden">── OR ENTER MANUALLY ──</div>
+
+      <!-- Method tabs: Manual / Scan -->
+      <div class="connect-tabs">
+        <button class="tab-btn active" data-tab="manual">⌨ MANUAL</button>
+        <button class="tab-btn" data-tab="scan">📷 SCAN QR</button>
+      </div>
+
+      <!-- Manual entry -->
+      <div id="tab-manual" class="tab-panel active">
+        <label class="input-label" for="code-input">ENTER 5-CHAR ROOM CODE</label>
+        <div class="code-input-row">
+          <input
+            type="text"
+            id="code-input"
+            class="code-input"
+            maxlength="5"
+            placeholder="A7X2P"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
+          <button id="btn-manual-connect" class="btn btn-primary">CONNECT</button>
+        </div>
+      </div>
+
+      <!-- QR Scanner -->
+      <div id="tab-scan" class="tab-panel">
+        <div id="qr-reader-wrap">
+          <div id="qr-reader"></div>
+        </div>
+        <button id="btn-start-scan" class="btn btn-secondary">▶ START CAMERA</button>
+        <button id="btn-stop-scan" class="btn btn-ghost hidden">■ STOP CAMERA</button>
+        <div id="scan-result" class="scan-result hidden"></div>
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: RECEIVER — CONNECTING ────────────────────────── -->
+    <section id="screen-receiver-connecting" class="screen">
+      <div class="connecting-wrap">
+        <div class="connect-anim">
+          <div class="conn-ring conn-ring-1"></div>
+          <div class="conn-ring conn-ring-2"></div>
+          <div class="conn-ring conn-ring-3"></div>
+          <div class="conn-center">P2P</div>
+        </div>
+        <div class="connecting-status">
+          <div id="conn-step-1" class="conn-step active">▶ FETCHING ROOM DATA</div>
+          <div id="conn-step-2" class="conn-step">▶ PERFORMING KEY EXCHANGE</div>
+          <div id="conn-step-3" class="conn-step">▶ ESTABLISHING WEBRTC</div>
+          <div id="conn-step-4" class="conn-step">▶ VERIFYING ENCRYPTION</div>
+        </div>
+        <div id="conn-error-msg" class="conn-error hidden"></div>
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: RECEIVER — TRANSFER ──────────────────────────── -->
+    <section id="screen-receiver-transfer" class="screen">
+      <div class="screen-title">RECEIVING</div>
+      <div class="transfer-file-info">
+        <span class="transfer-file-icon">📥</span>
+        <div>
+          <div id="transfer-file-name-r" class="transfer-name"></div>
+          <div id="transfer-file-size-r" class="transfer-size"></div>
+        </div>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-track">
+          <div id="progress-fill-r" class="progress-fill"></div>
+        </div>
+        <div class="progress-stats">
+          <span id="progress-pct-r" class="progress-pct">0%</span>
+          <span id="progress-chunks-r" class="progress-chunks">0 / 0 CHUNKS</span>
+          <span id="progress-speed-r" class="progress-speed">-- KB/S</span>
+        </div>
+      </div>
+      <div class="encrypt-label">
+        <span>🔓</span> DECRYPTING CHUNKS WITH AES-256-GCM
+      </div>
+    </section>
+
+    <!-- ─── SCREEN: RECEIVER — DONE ──────────────────────────────── -->
+    <section id="screen-receiver-done" class="screen">
+      <div class="done-graphic">
+        <div class="done-icon done-icon-receive">▼</div>
+        <div class="done-title">FILE RECEIVED</div>
+      </div>
+      <div class="done-stats-grid">
+        <div class="done-stat">
+          <div id="done-filename-r" class="done-stat-value"></div>
+          <div class="done-stat-label">FILE</div>
+        </div>
+        <div class="done-stat">
+          <div id="done-size-r" class="done-stat-value"></div>
+          <div class="done-stat-label">SIZE</div>
+        </div>
+        <div class="done-stat">
+          <div id="done-time-r" class="done-stat-value"></div>
+          <div class="done-stat-label">TIME</div>
+        </div>
+        <div class="done-stat">
+          <div id="done-speed-r" class="done-stat-value"></div>
+          <div class="done-stat-label">AVG SPEED</div>
+        </div>
+      </div>
+      <a id="download-link" class="btn btn-primary btn-download" download>
+        ▼ DOWNLOAD FILE
+      </a>
+      <button id="btn-receive-again" class="btn btn-ghost">RECEIVE ANOTHER</button>
+    </section>
+
+    <!-- ─── SCREEN: ERROR ─────────────────────────────────────────── -->
+    <section id="screen-error" class="screen">
+      <div class="error-wrap">
+        <div class="error-icon">✕</div>
+        <div class="error-title">ERROR</div>
+        <div id="error-message" class="error-message"></div>
+        <button id="btn-error-home" class="btn btn-primary">RETURN TO HOME</button>
+      </div>
+    </section>
+
+  </div><!-- /#app -->
+
+  <!-- LOG CONSOLE (dev, hidden by default) -->
+  <div id="log-console" class="log-console hidden">
+    <div class="log-title">◀ CONSOLE ▶</div>
+    <div id="log-output"></div>
+  </div>
+
+  <!-- ─── APP SCRIPTS ───────────────────────────────────────────────── -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
